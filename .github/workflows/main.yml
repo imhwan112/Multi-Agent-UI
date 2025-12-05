@@ -1,4 +1,4 @@
-name: Deploy Next.js to EC2 (Docker Compose)
+name: Deploy multi-agent-ui (self-hosted)
 
 on:
   push:
@@ -7,37 +7,51 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, multi-agent-ui]
+
+    env:
+      # EC2에 있는 실제 소스 경로로 반드시 변경
+      DEPLOY_DIR: /home/ec2-user/multi-agent-ui
+      COMPOSE_FILE: docker-compose.yml
 
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up SSH key
+      - name: Check deploy directory
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          if [ ! -d "${{ env.DEPLOY_DIR }}" ]; then
+            echo "DEPLOY_DIR not found: $DEPLOY_DIR"
+            exit 1
+          fi
+          ls -la "$DEPLOY_DIR"
 
-      - name: Copy source to EC2
+      - name: Git pull (force sync with main)
         run: |
-          rsync -avz --delete ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/next-app
+          set -e
+          cd "$DEPLOY_DIR"
+          git fetch origin --prune
+          git reset --hard origin/main
+          git clean -fdx
+          git pull
 
-      - name: Build & Run on EC2
+      - name: Create .env from secret
         run: |
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            cd ~/next-app
+          cd "$DEPLOY_DIR"
+          echo "${{ secrets.FRONTEND_ENV }}" > .env
+          echo ".env created"
 
-            echo ".env 파일 생성"
-            echo "NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}" > .env
+      - name: Docker Compose Build & Up
+        run: |
+          set -e
+          cd "$DEPLOY_DIR"
+          docker-compose down || true
+          docker-compose up -d --build
 
-            echo "기존 컨테이너 중지"
-            docker-compose down || true
-
-            echo "새 이미지 빌드 & 실행"
-            docker-compose up -d --build
-
-            echo "사용하지 않는 이미지 정리"
-            docker system prune -af
-          EOF
+      - name: Health Check
+        run: |
+          sleep 5
+          if curl -sSf http://localhost:37123/ > /dev/null; then
+            echo "multi-agent-ui is UP"
+          else
+            echo "multi-agent-ui health check failed"
+            docker-compose logs --tail=200
+            exit 1
+          fi

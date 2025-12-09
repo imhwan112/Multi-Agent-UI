@@ -1,41 +1,54 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function PaymentSuccessPage() {
     const params = useSearchParams();
     const router = useRouter();
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
 
-    const handleConfirm = async () => {
-        setLoading(true);
+    useEffect(() => {
         const paymentKey = params.get("paymentKey");
         const orderId = params.get("orderId");
         const amount = params.get("amount");
 
-        if (!paymentKey || !orderId || !amount) return;
+        if (!paymentKey || !orderId || !amount) {
+            alert("잘못된 결제 요청입니다.");
+            router.replace("/");
+            return;
+        }
 
-        await fetch("/api/toss/confirm", {
+        fetch("/api/toss/confirm", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ paymentKey, orderId, amount }),
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                paymentKey,
+                orderId,
+                amount: Number(amount),
+            }),
+        }).finally(() => {
+            setLoading(false);
         });
-
-        router.push("/"); // 확인 누르면 홈으로 이동
-    };
+    }, []);
 
     return (
         <div className="flex flex-col items-center justify-center h-screen">
-            <h1 className="text-3xl font-bold mb-4">결제 완료 🎉</h1>
-            <p className="mb-4">결제가 정상 처리되었습니다.</p>
-            <button
-                onClick={handleConfirm}
-                className="bg-green-500 px-6 py-2 text-white rounded hover:bg-green-600"
-                disabled={loading}
-            >
-                확인
-            </button>
+            {loading ? (
+                <div>결제 완료 처리 중...</div>
+            ) : (
+                <>
+                    <h1 className="text-2xl font-bold mb-4">결제가 완료되었습니다</h1>
+                    <button
+                        onClick={() => router.push("/")}
+                        className="bg-green-500 text-white px-6 py-2 rounded"
+                    >
+                        확인하고 홈으로 이동
+                    </button>
+                </>
+            )}
         </div>
     );
 }
